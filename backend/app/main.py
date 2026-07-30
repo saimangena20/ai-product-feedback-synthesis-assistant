@@ -3,39 +3,38 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 
-
 app = FastAPI(
-	title=settings.project_name,
-	version=settings.api_version,
-	description="Initial FastAPI application for the AI Product Feedback Synthesis Assistant backend.",
+    title=settings.project_name,
+    version=settings.api_version,
+    description="Initial FastAPI application for the AI Product Feedback Synthesis Assistant backend.",
 )
 
 localhost_origins = [
-	"http://localhost",
-	"http://localhost:3000",
-	"http://localhost:5173",
-	"http://127.0.0.1",
-	"http://127.0.0.1:3000",
-	"http://127.0.0.1:5173",
+    "http://localhost",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
 ]
 
 app.add_middleware(
-	CORSMiddleware,
-	allow_origins=localhost_origins,
-	allow_credentials=True,
-	allow_methods=["*"],
-	allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=localhost_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
 @app.get("/")
 async def root() -> dict[str, str]:
-	return {"message": "AI Product Feedback Synthesis Assistant API"}
+    return {"message": "AI Product Feedback Synthesis Assistant API"}
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-	return {
-		"status": "healthy",
-		"service": "AI Product Feedback Synthesis Assistant",
-	}
+    return {
+        "status": "healthy",
+        "service": "AI Product Feedback Synthesis Assistant",
+    }

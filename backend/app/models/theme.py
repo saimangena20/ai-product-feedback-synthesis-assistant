@@ -7,7 +7,7 @@ from app.database.base import Base
 
 
 class Theme(Base):
-    __tablename__ = "theme"
+    __tablename__ = "themes"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
