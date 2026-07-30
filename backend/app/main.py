@@ -1,10 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import settings
+
 
 app = FastAPI(
-	title="AI Product Feedback Synthesis Assistant API",
-	version="1.0.0",
+	title=settings.project_name,
+	version=settings.api_version,
 	description="Initial FastAPI application for the AI Product Feedback Synthesis Assistant backend.",
 )
 
