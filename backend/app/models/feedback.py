@@ -10,10 +10,23 @@ class Feedback(Base):
     __tablename__ = "feedback"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    customer_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    product_name: Mapped[str] = mapped_column(String, nullable=False)
-    feedback_text: Mapped[str] = mapped_column(Text, nullable=False)
-    sentiment: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    customer_id: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )
+
+    product_name: Mapped[str] = mapped_column(
+        String(255), nullable=False
+    )
+
+    feedback_text: Mapped[str] = mapped_column(
+        Text, nullable=False
+    )
+
+    sentiment: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

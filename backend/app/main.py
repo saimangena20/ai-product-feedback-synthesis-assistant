@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api.feedback import router as feedback_router
 from app.core.config import settings
+from app.database.session import engine
+from app.database.base import Base
 
 app = FastAPI(
     title=settings.project_name,
@@ -29,6 +32,19 @@ app.add_middleware(
 
 app.include_router(feedback_router)
 
+@app.on_event("startup")
+def startup_database_check():
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        print("✅ Connected to MySQL successfully!")
+
+        Base.metadata.create_all(bind=engine)
+        print("✅ Database tables created successfully!")
+
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        raise
 
 @app.get("/")
 async def root() -> dict[str, str]:
