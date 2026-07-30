@@ -1,11 +1,13 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
+from app.services.csv_service import parse_feedback_csv
+
 
 router = APIRouter(prefix="/api/v1/feedback", tags=["feedback"])
 
 
 @router.post("/upload")
-async def upload_feedback_csv(file: UploadFile = File(...)) -> dict[str, str]:
+async def upload_feedback_csv(file: UploadFile = File(...)) -> dict[str, object]:
     filename = file.filename or ""
     if not filename.lower().endswith(".csv"):
         raise HTTPException(
@@ -13,7 +15,4 @@ async def upload_feedback_csv(file: UploadFile = File(...)) -> dict[str, str]:
             detail="Only .csv files are allowed.",
         )
 
-    return {
-        "filename": filename,
-        "message": "CSV received successfully",
-    }
+    return await parse_feedback_csv(file)
