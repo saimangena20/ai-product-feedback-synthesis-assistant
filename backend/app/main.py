@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.feedback import router as feedback_router
 from app.core.config import settings
 
 app = FastAPI(
@@ -25,6 +26,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(feedback_router)
 
 
 @app.get("/")
