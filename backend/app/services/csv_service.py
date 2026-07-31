@@ -29,9 +29,12 @@ async def parse_feedback_csv(file: UploadFile) -> dict[str, object]:
 
     for row in reader:
         clean_row = {
-            key.strip(): value.strip().strip('"') if value else value
-            for key, value in row.items()
-        }
+    key.strip().lower(): (
+        value.strip().strip('"').rstrip(",") if value else value
+    )
+    for key, value in row.items()
+    }
+
         records.append(clean_row)
 
     return {
