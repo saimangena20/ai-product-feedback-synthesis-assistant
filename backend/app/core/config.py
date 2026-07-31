@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     project_name: str = "AI Product Feedback Synthesis Assistant"
     api_version: str = "1.0.0"
     database_url: str = "sqlite:///./feedback.db"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
 
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).resolve().parents[2] / ".env"),
