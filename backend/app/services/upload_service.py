@@ -11,8 +11,10 @@ async def upload_feedback(file, db: Session):
     repository = FeedbackRepository(db)
 
     saved_records = 0
+    duplicate_records = 0
 
     for record in parsed_data["records"]:
+
         feedback = FeedbackCreate(
             customer_id=record.get("customer_id"),
             product_name=record["product_name"],
@@ -20,10 +22,33 @@ async def upload_feedback(file, db: Session):
             sentiment=record.get("sentiment"),
         )
 
+        # Check whether feedback already exists
+        if repository.exists(
+            feedback.customer_id,
+            feedback.product_name,
+            feedback.feedback_text,
+        ):
+            duplicate_records += 1
+            continue
+
         repository.create(feedback)
         saved_records += 1
 
+    # If every record already exists
+    if saved_records == 0:
+        return {
+            "message": "This dataset has already been uploaded.",
+            "records_saved": 0,
+            "duplicates_skipped": duplicate_records,
+        }
+
     return {
-        "message": "CSV uploaded successfully",
+        "message": "CSV processed successfully.",
         "records_saved": saved_records,
+        "duplicates_skipped": duplicate_records,
     }
+
+
+def get_all_feedback(db):
+    repository = FeedbackRepository(db)
+    return repository.get_all()

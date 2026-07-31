@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.api.feedback import router as feedback_router
+from app.api.ai import router as ai_router
 from app.core.config import settings
 from app.database.session import engine
 from app.database.base import Base
@@ -31,6 +32,7 @@ app.add_middleware(
 )
 
 app.include_router(feedback_router)
+app.include_router(ai_router)
 
 @app.on_event("startup")
 def startup_database_check():

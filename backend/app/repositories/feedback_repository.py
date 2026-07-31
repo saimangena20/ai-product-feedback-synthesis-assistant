@@ -21,3 +21,18 @@ class FeedbackRepository:
         self.db.refresh(db_feedback)
 
         return db_feedback
+
+    def get_all(self) -> list[Feedback]:
+        return self.db.query(Feedback).all()
+
+    def exists(self, customer_id, product_name, feedback_text):
+        return (
+            self.db.query(Feedback)
+            .filter(
+                Feedback.customer_id == customer_id,
+                Feedback.product_name == product_name,
+                Feedback.feedback_text == feedback_text,
+            )
+            .first()
+            is not None
+        )
