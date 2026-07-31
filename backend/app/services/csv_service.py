@@ -1,43 +1,70 @@
 import csv
 import io
+from datetime import date
+from decimal import Decimal, InvalidOperation
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import UploadFile
 
-REQUIRED_COLUMNS = {"customer_id", "product_name", "feedback_text"}
+REQUIRED_HEADERS = {
+    "feedback text": "feedback_text",
+    "source": "source",
+    "user type": "user_type",
+    "product area": "product_area",
+    "date": "feedback_date",
+}
+OPTIONAL_HEADERS = {"rating": "rating"}
 
 
-async def parse_feedback_csv(file: UploadFile) -> dict[str, object]:
-    contents = await file.read()
-    text_stream = io.StringIO(contents.decode("utf-8-sig"))
+class CsvValidationError(Exception):
+    def __init__(self, code: str, errors: list[dict[str, object]]):
+        self.code = code
+        self.errors = errors
 
+
+def _header(value: str | None) -> str:
+    return (value or "").strip().casefold()
+
+
+def parse_csv_bytes(contents: bytes) -> dict[str, object]:
+    try:
+        text_stream = io.StringIO(contents.decode("utf-8-sig"))
+    except UnicodeDecodeError as exc:
+        raise CsvValidationError("invalid_encoding", [{"row": 1, "message": "CSV must be UTF-8 encoded."}]) from exc
     reader = csv.DictReader(text_stream)
+    headers = reader.fieldnames or []
+    header_map = {_header(name): name for name in headers}
+    missing = [display for display in REQUIRED_HEADERS if display not in header_map]
+    if missing:
+        raise CsvValidationError("missing_headers", [{"row": 1, "column": name, "message": "Required header is missing."} for name in missing])
 
-    fieldnames = {
-        name.strip().lower()
-        for name in (reader.fieldnames or [])
-    }
+    records: list[dict[str, object]] = []
+    errors: list[dict[str, object]] = []
+    for row_number, raw_row in enumerate(reader, start=2):
+        original_values = {key: value for key, value in raw_row.items() if key is not None}
+        values = {internal: raw_row.get(header_map[display]) for display, internal in REQUIRED_HEADERS.items()}
+        rating_value = raw_row.get(header_map["rating"]) if "rating" in header_map else None
+        for display, internal in REQUIRED_HEADERS.items():
+            if internal == "feedback_date":
+                continue
+            if not isinstance(values[internal], str) or not values[internal].strip():
+                errors.append({"row": row_number, "column": display, "message": "Required text field must be non-empty."})
+        parsed_date: date | None = None
+        try:
+            parsed_date = date.fromisoformat((values["feedback_date"] or "").strip())
+        except (TypeError, ValueError):
+            errors.append({"row": row_number, "column": "date", "message": "Date must use ISO format YYYY-MM-DD."})
+        parsed_rating: Decimal | None = None
+        if rating_value is not None and rating_value.strip():
+            try:
+                parsed_rating = Decimal(rating_value.strip())
+            except (InvalidOperation, ValueError):
+                errors.append({"row": row_number, "column": "rating", "message": "Rating must be numeric when present."})
+        records.append({**values, "rating": parsed_rating, "parsed_date": parsed_date, "row_number": row_number, "original_values": original_values})
+    if errors:
+        raise CsvValidationError("invalid_rows", errors)
+    return {"total_rows": len(records), "records": records}
 
-    missing_columns = REQUIRED_COLUMNS.difference(fieldnames)
 
-    if missing_columns:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Missing required columns: {', '.join(sorted(missing_columns))}",
-        )
-
-    records = []
-
-    for row in reader:
-        clean_row = {
-    key.strip().lower(): (
-        value.strip().strip('"').rstrip(",") if value else value
-    )
-    for key, value in row.items()
-    }
-
-        records.append(clean_row)
-
-    return {
-        "total_records": len(records),
-        "records": records,
-    }
+async def parse_feedback_csv(file: UploadFile) -> tuple[bytes, dict[str, object]]:
+    contents = await file.read()
+    return contents, parse_csv_bytes(contents)

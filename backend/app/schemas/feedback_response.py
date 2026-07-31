@@ -1,14 +1,10 @@
-from datetime import datetime
-
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
-class FeedbackResponse(BaseModel):
-    id: int
-    customer_id: str | None
-    product_name: str
-    feedback_text: str
-    sentiment: str | None
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
+class IngestResponse(BaseModel):
+    ingest_id: str
+    status: str
+    job_status: str
+    total_rows: int
+    valid_rows: int
+    preview: list[dict[str, object]]

@@ -1,38 +1,21 @@
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
-from app.models.feedback import Feedback
-from app.schemas.feedback import FeedbackCreate
+from app.models.feedback import FeedbackItem, Ingest
+from app.models.theme import Theme, ThemeMembership
 
 
-class FeedbackRepository:
+class IngestRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, feedback: FeedbackCreate) -> Feedback:
-        db_feedback = Feedback(
-            customer_id=feedback.customer_id,
-            product_name=feedback.product_name,
-            feedback_text=feedback.feedback_text,
-            sentiment=feedback.sentiment,
-        )
+    def get(self, ingest_id: str) -> Ingest | None:
+        return self.db.scalar(select(Ingest).options(selectinload(Ingest.feedback_items)).where(Ingest.id == ingest_id))
 
-        self.db.add(db_feedback)
-        self.db.commit()
-        self.db.refresh(db_feedback)
 
-        return db_feedback
+class ThemeRepository:
+    def __init__(self, db: Session):
+        self.db = db
 
-    def get_all(self) -> list[Feedback]:
-        return self.db.query(Feedback).all()
-
-    def exists(self, customer_id, product_name, feedback_text):
-        return (
-            self.db.query(Feedback)
-            .filter(
-                Feedback.customer_id == customer_id,
-                Feedback.product_name == product_name,
-                Feedback.feedback_text == feedback_text,
-            )
-            .first()
-            is not None
-        )
+    def get(self, theme_id: str) -> Theme | None:
+        return self.db.scalar(select(Theme).options(selectinload(Theme.memberships).selectinload(ThemeMembership.feedback_item)).where(Theme.id == theme_id))

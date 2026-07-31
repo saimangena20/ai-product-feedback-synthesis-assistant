@@ -6,4 +6,4 @@ class Base(DeclarativeBase):
 
 
 # Import all models so SQLAlchemy registers them
-from app.models import Feedback, HistoricalTheme, Theme
+from app.models import AuditLog, CsvSnapshot, FeedbackItem, HistoricalTheme, Ingest, Report, Theme, ThemeMembership

@@ -1,52 +1,39 @@
-from fastapi import FastAPI
+import json
+import logging
+from uuid import uuid4
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 
 from app.api.feedback import router as feedback_router
-from app.api.ai import router as ai_router
 from app.core.config import settings
-from app.database.session import engine
-from app.database.base import Base
 
-app = FastAPI(
-    title=settings.project_name,
-    version=settings.api_version,
-    description="Initial FastAPI application for the AI Product Feedback Synthesis Assistant backend.",
-)
 
-localhost_origins = [
-    "http://localhost",
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-]
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        fields = ("request_id", "ingest_id", "action", "outcome", "error_code")
+        return json.dumps({key: getattr(record, key, None) for key in fields} | {"message": record.getMessage()})
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=localhost_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter())
+app_logger = logging.getLogger("app.api")
+app_logger.handlers = [handler]
+app_logger.setLevel(logging.INFO)
+app_logger.propagate = False
+
+app = FastAPI(title=settings.project_name, version=settings.api_version, description="Feedback ingestion and deterministic theme analytics API.")
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost", "http://localhost:3000", "http://localhost:5173", "http://127.0.0.1", "http://127.0.0.1:3000", "http://127.0.0.1:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(feedback_router)
-app.include_router(ai_router)
 
-@app.on_event("startup")
-def startup_database_check():
-    try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        print("✅ Connected to MySQL successfully!")
 
-        Base.metadata.create_all(bind=engine)
-        print("✅ Database tables created successfully!")
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    request.state.request_id = request.headers.get("X-Request-ID", str(uuid4()))
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request.state.request_id
+    return response
 
-    except Exception as e:
-        print(f"❌ Database connection failed: {e}")
-        raise
 
 @app.get("/")
 async def root() -> dict[str, str]:
@@ -55,7 +42,4 @@ async def root() -> dict[str, str]:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {
-        "status": "healthy",
-        "service": "AI Product Feedback Synthesis Assistant",
-    }
+    return {"status": "healthy", "service": settings.project_name}

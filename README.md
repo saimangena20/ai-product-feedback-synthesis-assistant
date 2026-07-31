@@ -1,2 +1,15 @@
-# ai-product-feedback-synthesis-assistant
-AI-powered Product Feedback Synthesis Assistant
+# AI Product Feedback Synthesis Assistant
+
+Backend-only FastAPI service for immutable CSV ingest and deterministic theme analytics. It accepts the case-insensitive headers `feedback text`, `source`, `user type`, `product area`, `date`, and optional `rating`.
+
+## Setup
+
+1. Create and activate a Python 3.11+ virtual environment.
+2. Install dependencies: `pip install -r backend/requirements.txt`.
+3. Copy `backend/.env.example` to `backend/.env`. SQLite is the default; use a SQLAlchemy-compatible `DATABASE_URL` for another provider.
+4. From `backend`, run `alembic upgrade head`.
+5. Start the API with `uvicorn app.main:app --reload`.
+
+Run tests from `backend` with `pytest`.
+
+The API exposes `POST /api/v1/ingests`, `GET /api/v1/ingests/{ingest_id}`, and `GET /api/v1/themes/{theme_id}`. Theme metrics are calculated only from persisted theme-membership evidence; no LLM integration is included.
