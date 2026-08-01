@@ -51,17 +51,81 @@ def test_valid_upload_persists_snapshot_preview_and_rows(client):
     assert detail.json()["feedback_items"][0]["original_values"]["Feedback Text"] == "Great search"
 
 
+@pytest.mark.parametrize(
+    "headers",
+    [
+        "feedback_text,source,user_type,product_area,date,rating\n",
+        "FEEDBACK TEXT,SOURCE,USER TYPE,PRODUCT AREA,DATE,RATING\n",
+        "  Feedback Text  ,  Source  ,  User Type  ,  Product Area  ,  Date  ,  Rating  \n",
+    ],
+)
+def test_normalized_headers_work_for_underscores_case_and_whitespace(client, headers):
+    response = upload(client[0], headers + "Great search,web,admin,search,2026-07-30,4.5\n")
+    assert response.status_code == 201
+    assert response.json()["preview"][0]["feedback_text"] == "Great search"
+    assert response.json()["preview"][0]["rating"] == 4.5
+
+
+def test_common_aliases_and_extra_columns_work(client):
+    headers = "review,platform,plan,feature,submitted_at,stars,device,country\n"
+    response = upload(client[0], headers + "Great search,web,admin,search,2026-07-30,4.5,pixel,US\n")
+    assert response.status_code == 201
+    body = response.json()
+    assert body["preview"][0]["feedback_text"] == "Great search"
+    assert body["preview"][0]["source"] == "web"
+    assert body["preview"][0]["user_type"] == "admin"
+    assert body["preview"][0]["product_area"] == "search"
+    assert body["preview"][0]["feedback_date"] == "2026-07-30"
+    assert body["preview"][0]["rating"] == 4.5
+    detail = client[0].get(f"/api/v1/ingests/{body['ingest_id']}")
+    original_values = detail.json()["feedback_items"][0]["original_values"]
+    assert original_values["device"] == "pixel"
+    assert original_values["country"] == "US"
+
+
+def test_ambiguous_headers_return_controlled_validation_error(client):
+    response = upload(client[0], "review,feedback,source,user type,product area,date\nGreat search,Duplicate,web,admin,search,2026-07-30\n")
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "ambiguous_headers"
+    assert detail["errors"][0]["column"] == "feedback text"
+
+
 def test_missing_headers_are_actionable(client):
-    response = upload(client[0], "Feedback Text,Source\nhello,web\n")
+    response = upload(client[0], "feedback,source,device\nhello,web,pixel\n")
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "missing_headers"
     assert {entry["column"] for entry in response.json()["detail"]["errors"]} == {"user type", "product area", "date"}
 
 
 def test_malformed_date_is_row_numbered(client):
-    response = upload(client[0], VALID_HEADERS + "Broken,web,admin,search,30-07-2026,\n")
+    response = upload(client[0], VALID_HEADERS + "Broken,web,admin,search,not-a-date,\n")
     assert response.status_code == 422
     error = response.json()["detail"]["errors"][0]
+    assert error["row"] == 2 and error["column"] == "date"
+
+
+@pytest.mark.parametrize(
+    ("csv_date", "expected_date"),
+    [
+        ("7/1/2026", "2026-07-01"),
+        ("7/12/2026", "2026-07-12"),
+        ("12/7/2026", "2026-12-07"),
+        ("2026-07-15", "2026-07-15"),
+    ],
+)
+def test_csv_dates_use_mm_dd_when_slash_formatted(client, csv_date, expected_date):
+    response = upload(client[0], VALID_HEADERS + f"Formatted,web,admin,search,{csv_date},\n")
+    assert response.status_code == 201
+    assert response.json()["preview"][0]["feedback_date"] == expected_date
+
+
+def test_invalid_date_returns_validation_error(client):
+    response = upload(client[0], VALID_HEADERS + "Broken,web,admin,search,7/32/2026,\n")
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "invalid_rows"
+    error = detail["errors"][0]
     assert error["row"] == 2 and error["column"] == "date"
 
 

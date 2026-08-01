@@ -1,0 +1,6 @@
+feedback text,source,user type,product area,date,rating
+"Search crashes after I press Enter.",email,Admin,Search,2026-07-28,2
+"The results page freezes when filtering.",web,Member,Search,2026-07-29,1
+"I cannot find how to invite my team.",in_app,New user,Collaboration,2026-07-30,3
+"Invitations arrived late for two teammates.",email,Admin,Collaboration,2026-07-31,2
+"The dashboard loads quickly today.",survey,Member,Dashboard,2026-08-01,5

@@ -7,11 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.feedback import router as feedback_router
 from app.core.config import settings
+from app.database.base import Base
+from app.database.session import engine
 
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        fields = ("request_id", "ingest_id", "action", "outcome", "error_code")
+        fields = ("request_id", "ingest_id", "report_id", "approved_theme_count", "rejected_theme_count", "unreviewed_theme_count", "action", "outcome", "error_code")
         return json.dumps({key: getattr(record, key, None) for key in fields} | {"message": record.getMessage()})
 
 
@@ -25,6 +27,11 @@ app_logger.propagate = False
 app = FastAPI(title=settings.project_name, version=settings.api_version, description="Feedback ingestion and deterministic theme analytics API.")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost", "http://localhost:3000", "http://localhost:5173", "http://127.0.0.1", "http://127.0.0.1:3000", "http://127.0.0.1:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(feedback_router)
+
+
+@app.on_event("startup")
+def create_database_schema() -> None:
+    Base.metadata.create_all(bind=engine)
 
 
 @app.middleware("http")

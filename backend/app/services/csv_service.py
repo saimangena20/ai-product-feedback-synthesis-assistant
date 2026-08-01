@@ -1,6 +1,7 @@
 import csv
 import io
-from datetime import date
+import re
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from fastapi import UploadFile
@@ -14,6 +15,50 @@ REQUIRED_HEADERS = {
 }
 OPTIONAL_HEADERS = {"rating": "rating"}
 
+HEADER_ALIASES: dict[str, str] = {
+    "feedback text": "feedback text",
+    "feedback": "feedback text",
+    "review": "feedback text",
+    "comment": "feedback text",
+    "comments": "feedback text",
+    "customer feedback": "feedback text",
+    "customer review": "feedback text",
+    "user feedback": "feedback text",
+    "message": "feedback text",
+    "issue": "feedback text",
+    "source": "source",
+    "channel": "source",
+    "platform": "source",
+    "origin": "source",
+    "feedback source": "source",
+    "user type": "user type",
+    "customer type": "user type",
+    "customer segment": "user type",
+    "user segment": "user type",
+    "plan": "user type",
+    "tier": "user type",
+    "account type": "user type",
+    "product area": "product area",
+    "feature": "product area",
+    "module": "product area",
+    "category": "product area",
+    "component": "product area",
+    "product feature": "product area",
+    "area": "product area",
+    "date": "date",
+    "feedback date": "date",
+    "created at": "date",
+    "created date": "date",
+    "submitted at": "date",
+    "submitted date": "date",
+    "timestamp": "date",
+    "rating": "rating",
+    "stars": "rating",
+    "score": "rating",
+    "review score": "rating",
+    "satisfaction score": "rating",
+}
+
 
 class CsvValidationError(Exception):
     def __init__(self, code: str, errors: list[dict[str, object]]):
@@ -22,7 +67,47 @@ class CsvValidationError(Exception):
 
 
 def _header(value: str | None) -> str:
-    return (value or "").strip().casefold()
+    normalized = (value or "").strip().casefold()
+    normalized = re.sub(r"[\s_-]+", " ", normalized)
+    return normalized
+
+
+def _canonical_header(value: str | None) -> str | None:
+    return HEADER_ALIASES.get(_header(value))
+
+
+def _build_header_map(headers: list[str]) -> dict[str, str]:
+    matched_headers: dict[str, list[str]] = {display: [] for display in (*REQUIRED_HEADERS.keys(), *OPTIONAL_HEADERS.keys())}
+    for header in headers:
+        canonical = _canonical_header(header)
+        if canonical is None:
+            continue
+        matched_headers[canonical].append(header)
+    ambiguous = [
+        {
+            "row": 1,
+            "column": display,
+            "message": f'Multiple uploaded columns map to "{display}".',
+            "conflicting_headers": values,
+        }
+        for display, values in matched_headers.items()
+        if len(values) > 1
+    ]
+    if ambiguous:
+        raise CsvValidationError("ambiguous_headers", ambiguous)
+    return {display: matched_headers[display][0] for display in REQUIRED_HEADERS if matched_headers[display]} | {
+        display: matched_headers[display][0] for display in OPTIONAL_HEADERS if matched_headers[display]
+    }
+
+
+def _parse_date(value: str | None) -> date:
+    cleaned = (value or "").strip()
+    for pattern in ("%Y-%m-%d", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(cleaned, pattern).date()
+        except ValueError:
+            pass
+    raise ValueError("unparseable date")
 
 
 def parse_csv_bytes(contents: bytes) -> dict[str, object]:
@@ -32,7 +117,7 @@ def parse_csv_bytes(contents: bytes) -> dict[str, object]:
         raise CsvValidationError("invalid_encoding", [{"row": 1, "message": "CSV must be UTF-8 encoded."}]) from exc
     reader = csv.DictReader(text_stream)
     headers = reader.fieldnames or []
-    header_map = {_header(name): name for name in headers}
+    header_map = _build_header_map(headers)
     missing = [display for display in REQUIRED_HEADERS if display not in header_map]
     if missing:
         raise CsvValidationError("missing_headers", [{"row": 1, "column": name, "message": "Required header is missing."} for name in missing])
@@ -50,9 +135,9 @@ def parse_csv_bytes(contents: bytes) -> dict[str, object]:
                 errors.append({"row": row_number, "column": display, "message": "Required text field must be non-empty."})
         parsed_date: date | None = None
         try:
-            parsed_date = date.fromisoformat((values["feedback_date"] or "").strip())
+            parsed_date = _parse_date(values["feedback_date"])
         except (TypeError, ValueError):
-            errors.append({"row": row_number, "column": "date", "message": "Date must use ISO format YYYY-MM-DD."})
+            errors.append({"row": row_number, "column": "date", "message": "Date must be parseable (for example YYYY-MM-DD or MM/DD/YYYY)."})
         parsed_rating: Decimal | None = None
         if rating_value is not None and rating_value.strip():
             try:

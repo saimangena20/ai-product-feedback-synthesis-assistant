@@ -44,13 +44,13 @@ def reject(db: Session, theme_id: str, reason: str) -> Theme:
     return theme
 
 
-def split(db: Session, theme_id: str, name: str, feedback_ids: list[str]) -> Theme:
+def split(db: Session, theme_id: str, name: str, feedback_ids: list[str], problem_statement: str | None = None) -> Theme:
     with db.begin():
         source = _theme(db, theme_id)
         members = db.scalars(select(ThemeMembership).where(ThemeMembership.theme_id == theme_id, ThemeMembership.feedback_item_id.in_(set(feedback_ids)))).all()
         if len(members) != len(set(feedback_ids)):
             raise HTTPException(422, detail={"code": "invalid_split_members"})
-        new_theme = Theme(id=str(uuid4()), ingest_id=source.ingest_id, name=name, review_status="suggested")
+        new_theme = Theme(id=str(uuid4()), ingest_id=source.ingest_id, name=name, problem_statement=problem_statement, review_status="suggested")
         db.add(new_theme)
         for member in members:
             db.add(ThemeMembership(id=str(uuid4()), theme_id=new_theme.id, feedback_item_id=member.feedback_item_id))

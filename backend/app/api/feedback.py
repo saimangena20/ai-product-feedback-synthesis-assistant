@@ -2,15 +2,18 @@ import logging
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database.session import get_db
 from app.models.historical_theme import HistoricalProductNote
 from app.models.supporting import AnalysisJob, AuditLog
+from app.models.theme import Theme, ThemeMembership
 from app.repositories.feedback_repository import IngestRepository, ThemeRepository
 from app.services.ai_service import run_analysis
 from app.services.analytics_service import theme_analytics
 from app.services.csv_service import CsvValidationError
+from app.schemas.report import ReportListItemResponse, ReportSnapshotResponse
+from app.services.report_service import create_reviewed_report, get_report, list_reports
 from app.services.upload_service import serialize_item, upload_feedback
 from app.services import review_service
 
@@ -29,6 +32,7 @@ class RejectRequest(BaseModel):
 class SplitRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     feedback_item_ids: list[str] = Field(min_length=1)
+    problem_statement: str | None = Field(default=None, min_length=1)
 
 
 class MergeRequest(BaseModel):
@@ -39,6 +43,33 @@ class HistoricalNoteRequest(BaseModel):
     product_area: str = Field(min_length=1, max_length=255)
     title: str = Field(min_length=1, max_length=255)
     note: str = Field(min_length=1)
+
+
+def _serialize_theme_summary(theme: Theme) -> dict[str, object]:
+    items = sorted((membership.feedback_item for membership in theme.memberships), key=lambda item: item.row_number)
+    metrics = theme_analytics(items)
+    return {
+        "id": theme.id,
+        "ingest_id": theme.ingest_id,
+        "name": theme.name,
+        "description": theme.description,
+        "problem_statement": theme.problem_statement,
+        "review_status": theme.review_status,
+        "ai_suggested": theme.ai_suggested,
+        "advisory_confidence": theme.advisory_confidence,
+        "historical_match_id": theme.historical_match_id,
+        "historical_commentary": theme.historical_commentary,
+        "historical_similarity_score": theme.historical_similarity_score,
+        "rejection_reason": theme.rejection_reason,
+        "approved_at": theme.approved_at,
+        "created_at": theme.created_at,
+        "analytics": {
+            "feedback_count": metrics["member_count"],
+            "source_distribution": metrics["distribution_by_source"],
+            "user_type_distribution": metrics["distribution_by_user_type"],
+            "frequency_over_time": metrics["frequency_over_time"],
+        },
+    }
 
 
 @router.post("/ingests", status_code=status.HTTP_201_CREATED)
@@ -64,13 +95,53 @@ def ingest_detail(ingest_id: str, db: Session = Depends(get_db)) -> dict[str, ob
     return {"ingest_id": ingest.id, "filename": ingest.filename, "status": ingest.status, "job_status": ingest.job_status, "total_rows": ingest.total_rows, "valid_rows": ingest.valid_rows, "preview": [serialize_item(item) for item in items[:10]], "feedback_items": [serialize_item(item) for item in items]}
 
 
+@router.get("/ingests/{ingest_id}/themes")
+def ingest_themes(ingest_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
+    ingest = IngestRepository(db).get(ingest_id)
+    if ingest is None:
+        raise HTTPException(status_code=404, detail={"code": "ingest_not_found"})
+    themes = db.scalars(
+        select(Theme)
+        .options(selectinload(Theme.memberships).selectinload(ThemeMembership.feedback_item))
+        .where(Theme.ingest_id == ingest_id)
+        .order_by(Theme.created_at, Theme.id)
+    ).all()
+    return {"ingest_id": ingest.id, "themes": [_serialize_theme_summary(theme) for theme in themes]}
+
+
+@router.post("/ingests/{ingest_id}/reports", response_model=ReportSnapshotResponse, status_code=status.HTTP_201_CREATED)
+def create_report(ingest_id: str, request: Request, db: Session = Depends(get_db)) -> ReportSnapshotResponse:
+    try:
+        return create_reviewed_report(db, ingest_id, request.state.request_id)
+    except HTTPException:
+        raise
+
+
+@router.get("/ingests/{ingest_id}/reports", response_model=list[ReportListItemResponse])
+def ingest_reports(ingest_id: str, db: Session = Depends(get_db)) -> list[ReportListItemResponse]:
+    ingest = IngestRepository(db).get(ingest_id)
+    if ingest is None:
+        raise HTTPException(status_code=404, detail={"code": "ingest_not_found"})
+    return list_reports(db, ingest_id)
+
+
+@router.get("/reports/{report_id}", response_model=ReportSnapshotResponse)
+def report_detail(report_id: str, request: Request, db: Session = Depends(get_db)) -> ReportSnapshotResponse:
+    try:
+        return get_report(db, report_id)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            logger.warning("report_retrieval_failed", extra={"request_id": request.state.request_id, "report_id": report_id, "action": "report_get", "outcome": "failure", "error_code": "report_not_found"})
+        raise
+
+
 @router.get("/themes/{theme_id}")
 def theme_detail(theme_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
     theme = ThemeRepository(db).get(theme_id)
     if theme is None:
         raise HTTPException(status_code=404, detail={"code": "theme_not_found"})
     items = sorted((membership.feedback_item for membership in theme.memberships), key=lambda item: item.row_number)
-    return {"theme_id": theme.id, "ingest_id": theme.ingest_id, "name": theme.name, "description": theme.description, "review_status": theme.review_status, "ai_suggested": theme.ai_suggested, "advisory_confidence": theme.advisory_confidence, "historical_match": {"note_id": theme.historical_match_id, "commentary": theme.historical_commentary, "similarity_score": theme.historical_similarity_score, "advisory": True} if theme.historical_match_id else None, "approved_at": theme.approved_at, "rejection_reason": theme.rejection_reason, "feedback_items": [serialize_item(item) for item in items], "analytics": theme_analytics(items)}
+    return {"theme_id": theme.id, "ingest_id": theme.ingest_id, "name": theme.name, "description": theme.description, "problem_statement": theme.problem_statement, "review_status": theme.review_status, "ai_suggested": theme.ai_suggested, "advisory_confidence": theme.advisory_confidence, "historical_match": {"note_id": theme.historical_match_id, "commentary": theme.historical_commentary, "similarity_score": theme.historical_similarity_score, "advisory": True} if theme.historical_match_id else None, "approved_at": theme.approved_at, "rejection_reason": theme.rejection_reason, "feedback_items": [serialize_item(item) for item in items], "analytics": theme_analytics(items)}
 
 
 @router.post("/ingests/{ingest_id}/analysis")
@@ -117,7 +188,7 @@ def reject_theme(theme_id: str, payload: RejectRequest, db: Session = Depends(ge
 
 @router.post("/themes/{theme_id}/split", status_code=201)
 def split_theme(theme_id: str, payload: SplitRequest, db: Session = Depends(get_db)) -> dict[str, str]:
-    return {"theme_id": review_service.split(db, theme_id, payload.name, payload.feedback_item_ids).id}
+    return {"theme_id": review_service.split(db, theme_id, payload.name, payload.feedback_item_ids, payload.problem_statement).id}
 
 
 @router.post("/themes/{theme_id}/merge")
